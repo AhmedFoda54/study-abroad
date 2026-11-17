@@ -8,7 +8,8 @@
     ".": "./src/index.js",
     "./executor": "./src/executor.js",
     "./secrets": "./src/secrets.js",
-    "./demo": "./src/demo.js"
+    "./demo": "./src/demo.js",
+    "./opencode": "./src/opencode.js"
   },
   "dependencies": {
     "@flow/shared": "*",

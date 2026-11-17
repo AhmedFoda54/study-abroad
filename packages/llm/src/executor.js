@@ -1,6 +1,6 @@
 import { createService, finaliseService, listen, route } from '@flow/service-kit';
 import { ok, AppError, renderTemplate, extractVariables, resolveModelConfig } from '@flow/shared';
-import { runPrompt } from './index.js';
+import { runPrompt, isOpencodeEngine } from './index.js';
 import { resolveApiKey } from './secrets.js';
 
 /**
@@ -54,7 +54,9 @@ export function createExecutorService({ name, port, defaultModel, description })
       const missingVariables = [...new Set([...system.missing, ...user.missing])];
 
       const apiKey = await resolveApiKey();
-      const demoMode = Boolean(runtime.demoMode) || !apiKey;
+      // The OpenCode dev engine carries its own credential (the local client),
+      // so a missing OpenAI key does not force demo mode there.
+      const demoMode = Boolean(runtime.demoMode) || (!isOpencodeEngine() && !apiKey);
 
       logger.info(
         `${step.key} -> ${config.model}${config.webSearch ? ' +web' : ''}${demoMode ? ' (demo)' : ''}` +

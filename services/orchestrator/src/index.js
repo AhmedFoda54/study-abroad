@@ -23,6 +23,7 @@ import {
   profileSchema,
   targetSchema,
 } from '@flow/shared';
+import { isOpencodeEngine } from '@flow/llm';
 import { executeRun } from './runner.js';
 
 /**
@@ -141,7 +142,9 @@ app.get(
       ok({
         ...settings,
         apiKey,
-        demoModeActive: settings.demoMode || !apiKey.present,
+        // The OpenCode dev engine rides the local client, so a missing OpenAI
+        // key does not force demo mode there.
+        demoModeActive: settings.demoMode || (!apiKey.present && !isOpencodeEngine()),
         dataDir: DATA_DIR,
       }),
     );
@@ -157,7 +160,14 @@ app.patch(
     );
 
     const apiKey = await describeKey();
-    res.json(ok({ ...updated, apiKey, demoModeActive: updated.demoMode || !apiKey.present, dataDir: DATA_DIR }));
+    res.json(
+      ok({
+        ...updated,
+        apiKey,
+        demoModeActive: updated.demoMode || (!apiKey.present && !isOpencodeEngine()),
+        dataDir: DATA_DIR,
+      }),
+    );
   }),
 );
 
@@ -331,8 +341,10 @@ app.post(
       wordCount: settings.defaultWordCount,
       ...(input.options ?? {}),
       // Demo mode is forced when there is no key: a run that silently produced
-      // nothing would be far more confusing than one labelled as a demo.
-      demoMode: Boolean(input.options?.demoMode) || settings.demoMode || !hasKey,
+      // nothing would be far more confusing than one labelled as a demo. With
+      // the dev-only OpenCode engine the local client is the credential.
+      demoMode:
+        Boolean(input.options?.demoMode) || settings.demoMode || (!hasKey && !isOpencodeEngine()),
     });
 
     const createdAt = now();
@@ -599,7 +611,7 @@ app.get(
             summary: summariseRun(run),
           })),
         activeRuns: [...active.keys()],
-        demoModeActive: settings.demoMode || !apiKey.present,
+        demoModeActive: settings.demoMode || (!apiKey.present && !isOpencodeEngine()),
         apiKey,
       }),
     );

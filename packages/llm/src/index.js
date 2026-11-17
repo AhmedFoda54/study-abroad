@@ -1,17 +1,31 @@
 import OpenAI from 'openai';
 import { AppError, getErrorMessage } from '@flow/shared';
 import { generateDemoOutput } from './demo.js';
+import { runOpencodePrompt } from './opencode.js';
 
 export { generateDemoOutput } from './demo.js';
 
 /**
  * The single place the platform talks to a model.
  *
- * Two engines sit behind one function. The live engine calls the OpenAI
+ * Three engines sit behind one function. The live engine calls the OpenAI
  * Responses API; the demo engine synthesises structurally valid output from the
- * same JSON schema. Every screen, pipeline, and export therefore works before
- * an API key exists, which is what makes the product explorable on first run.
+ * same JSON schema; and the dev-only OpenCode engine routes the prompt through
+ * the local OpenCode client, whose free models cost nothing. Every screen,
+ * pipeline, and export therefore works before an API key exists, which is what
+ * makes the product explorable on first run.
  */
+
+/**
+ * Whether model calls should ride the local OpenCode client instead of the
+ * OpenAI API. Opt-in per deployment through the environment, and meant for
+ * local development: hosted mode cannot spawn processes and this path has no
+ * web search or guaranteed structured output.
+ * @returns {boolean}
+ */
+export function isOpencodeEngine() {
+  return process.env.FLOW_LLM_ENGINE?.trim().toLowerCase() === 'opencode';
+}
 
 /** @type {OpenAI | null} */
 let cachedClient = null;
@@ -156,7 +170,7 @@ function parseJsonOutput(text) {
  *   signal?: AbortSignal,
  *   logger?: { info: (m: string) => void, warn: (m: string) => void, debug: (m: string) => void }
  * }} request
- * @returns {Promise<{ output: unknown, text: string, usage: ReturnType<typeof readUsage>, engine: 'live' | 'demo' }>}
+ * @returns {Promise<{ output: unknown, text: string, usage: ReturnType<typeof readUsage>, engine: 'live' | 'demo' | 'opencode' }>}
  */
 export async function runPrompt(request) {
   const {
@@ -177,7 +191,8 @@ export async function runPrompt(request) {
     throw new AppError('The rendered prompt was empty. Check the template for this step.', 422);
   }
 
-  const shouldDemo = demoMode || !apiKey;
+  const engine = isOpencodeEngine() ? 'opencode' : 'openai';
+  const shouldDemo = demoMode || (engine === 'openai' && !apiKey);
 
   if (shouldDemo) {
     logger?.debug(`demo engine (${config.model})`);
@@ -201,6 +216,32 @@ export async function runPrompt(request) {
         totalTokens: approxPrompt + Math.round(text.length / 4),
         model: `${config.model} (demo)`,
       },
+      durationMs: Date.now() - started,
+    };
+  }
+
+  if (engine === 'opencode') {
+    // With the dev engine the model id must be an OpenCode id; the stored
+    // settings default to OpenAI names, so the env override decides.
+    const modelId = process.env.FLOW_OPENCODE_MODEL?.trim() || config.model;
+    if (config.webSearch) {
+      logger?.warn(`"${config.model}" asked for web search, which the opencode engine cannot do; it ran without.`);
+    }
+
+    const started = Date.now();
+    const { text } = await runOpencodePrompt({ systemPrompt, userPrompt, model: modelId, signal, logger });
+
+    return {
+      output: outputSchema ? parseJsonOutput(text) : text,
+      text,
+      usage: {
+        promptTokens: Math.round((systemPrompt.length + userPrompt.length) / 4),
+        completionTokens: Math.round(text.length / 4),
+        reasoningTokens: 0,
+        totalTokens: Math.round((systemPrompt.length + userPrompt.length + text.length) / 4),
+        model: `${modelId} (opencode)`,
+      },
+      engine: 'opencode',
       durationMs: Date.now() - started,
     };
   }
