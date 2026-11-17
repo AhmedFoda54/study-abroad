@@ -59,6 +59,12 @@ function runCli(args, options = {}) {
   const { timeoutMs = DEFAULT_TIMEOUT_MS, signal } = options;
 
   return new Promise((resolve, reject) => {
+    // A run cancelled while the step was starting must not spawn a full call.
+    if (signal?.aborted) {
+      reject(new AppError('The model call was cancelled.', 499));
+      return;
+    }
+
     const child = spawn(resolveOpencodeBin(), args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
@@ -67,6 +73,7 @@ function runCli(args, options = {}) {
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
+      signal?.removeEventListener('abort', onAbort);
       child.kill();
       reject(new AppError(`The OpenCode engine did not answer within ${Math.round(timeoutMs / 1000)}s.`, 504));
     }, timeoutMs);
@@ -148,7 +155,18 @@ function translateOpencodeError(stdout, stderr) {
     return new AppError(`The OpenCode engine failed: ${message || reason || 'unknown provider error'}`, status ?? 502);
   }
 
-  const detail = message || stderr.trim().split('\n')[0] || 'no error details';
+  // Observed live when the model reference does not resolve: the client rejects
+  // the request before any provider is contacted, which would otherwise read as
+  // an API-key problem ("Missing key") when it is really a wrong model id.
+  if (parsed?._tag === 'InvalidRequestError') {
+    return new AppError(
+      `The OpenCode engine rejected the request: ${message || 'invalid request'}. Usually FLOW_OPENCODE_MODEL is not a valid OpenCode model id — list the ids with "opencode api get /api/model".`,
+      typeof status === 'number' && status >= 400 && status < 500 ? status : 400,
+    );
+  }
+
+  const detail =
+    message || stderr.trim().split('\n')[0] || stdout.trim().slice(0, 160) || 'no error details';
   return new AppError(`The OpenCode engine call failed: ${detail}`.slice(0, 400), status ?? 502);
 }
 
