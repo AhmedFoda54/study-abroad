@@ -23,7 +23,7 @@ import {
 import { api, fetcher, ApiError, CLOUD_MODE } from '@/lib/api';
 import { ApiKeyCard, useApiKeyState } from '@/components/api-key-card';
 import type { ProfileSummary, Target, Pipeline, Meta, Settings, Run } from '@/lib/types';
-import { cn, formatCost, formatNumber, truncate } from '@/lib/utils';
+import { cn, formatCost, formatNumber, timeAgo, truncate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Field, Input, Textarea, Select, Checkbox } from '@/components/ui/field';
 import { Panel, Badge, Notice, Progress, SwitchRow, Tooltip } from '@/components/ui/primitives';
@@ -87,6 +87,9 @@ function RunWizard() {
   const [selectedTargets, setSelectedTargets] = React.useState<string[]>([]);
   const [search, setSearch] = React.useState('');
   const [launching, setLaunching] = React.useState(false);
+  // What the last "Select all" click left out. Select-all deliberately skips
+  // targets that have already been run, and this is how the picker says so.
+  const [selectAllSkipped, setSelectAllSkipped] = React.useState(0);
   const keyState = useApiKeyState();
 
   const [options, setOptions] = React.useState({
@@ -136,6 +139,12 @@ function RunWizard() {
   const profile = profiles?.find((p) => p.id === profileId);
   const pipeline = pipelines?.find((p) => p.id === pipelineId);
   const chosenTargets = (targets ?? []).filter((t) => selectedTargets.includes(t.id));
+  const alreadyRunTargets = chosenTargets.filter((t) => t.lastRunId);
+  const mostRecentRun = alreadyRunTargets
+    .map((t) => t.lastRunAt)
+    .filter(Boolean)
+    .sort()
+    .at(-1);
   const pipelineErrors = pipeline?.issues?.filter((i) => i.level === 'error') ?? [];
 
   const filteredTargets = React.useMemo(() => {
@@ -359,7 +368,10 @@ function RunWizard() {
                     <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--color-text-faint)]" />
                     <Input
                       value={search}
-                      onChange={(e) => setSearch(e.target.value)}
+                      onChange={(e) => {
+                        setSearch(e.target.value);
+                        setSelectAllSkipped(0);
+                      }}
                       placeholder="Filter targets"
                       aria-label="Filter targets"
                       className="pl-9"
@@ -368,11 +380,27 @@ function RunWizard() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => setSelectedTargets(filteredTargets.map((t) => t.id))}
+                    onClick={() => {
+                      // Already-run targets stay out of a bulk selection: re-running
+                      // them re-researches and re-drafts, which is rarely what a
+                      // "select everything" click means. They can still be picked
+                      // individually — the badge marks them.
+                      const fresh = filteredTargets.filter((t) => !t.lastRunId);
+                      setSelectAllSkipped(filteredTargets.length - fresh.length);
+                      setSelectedTargets(fresh.map((t) => t.id));
+                    }}
                   >
                     Select all {search && 'shown'}
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => setSelectedTargets([])} disabled={!selectedTargets.length}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setSelectedTargets([]);
+                      setSelectAllSkipped(0);
+                    }}
+                    disabled={!selectedTargets.length}
+                  >
                     Clear
                   </Button>
                 </div>
@@ -406,9 +434,15 @@ function RunWizard() {
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="text-[0.8125rem] font-medium text-[var(--color-text)]">{target.name}</span>
                             <Badge tone="neutral">{target.kind}</Badge>
+                            {target.lastRunId && <Badge tone="warning">Already run</Badge>}
                           </div>
                           <p className="truncate text-[0.6875rem] text-[var(--color-text-muted)]">
-                            {[target.organization, target.country].filter(Boolean).join(' · ')}
+                            {[
+                              target.lastRunId ? `last run ${timeAgo(target.lastRunAt)}` : '',
+                              [target.organization, target.country].filter(Boolean).join(' · '),
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')}
                           </p>
                         </div>
                       </label>
@@ -418,6 +452,7 @@ function RunWizard() {
 
                 <p className="text-[0.8125rem] text-[var(--color-text-muted)]">
                   {selectedTargets.length} selected of {targets.length}
+                  {selectAllSkipped > 0 && ` · select-all skipped ${selectAllSkipped} already-run`}
                 </p>
               </section>
             )}
@@ -643,6 +678,14 @@ function RunWizard() {
                       {activeSteps.length === 1 ? '' : 's'}
                     </li>
                     {usesWebSearch && <li>Includes web search, so expect minutes rather than seconds per target</li>}
+                    {alreadyRunTargets.length > 0 && (
+                      <li className="text-[var(--color-amber)]">
+                        {alreadyRunTargets.length} of the {chosenTargets.length} selected target
+                        {chosenTargets.length === 1 ? '' : 's'} {alreadyRunTargets.length === 1 ? 'was' : 'were'} already
+                        run{mostRecentRun ? ` (most recently ${timeAgo(mostRecentRun)})` : ''}. Re-running re-researches and
+                        re-drafts {alreadyRunTargets.length === 1 ? 'it' : 'them'}.
+                      </li>
+                    )}
                     {demoActive ? (
                       <li className="text-[var(--color-amber)]">Demo mode: nothing is researched and nothing is charged</li>
                     ) : (
