@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// Loads the root .env so the seeded directory matches the one the services use.
+import 'dotenv/config';
 import { writeFile, mkdir, readdir, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -18,7 +20,11 @@ import { buildDefaultPrompts, buildDefaultPipelines } from '../services/prompts/
  */
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const dataDir = path.resolve(process.env.FLOW_DATA_DIR ?? path.join(root, 'data'));
+const dataDir = process.env.FLOW_DATA_DIR
+  ? path.isAbsolute(process.env.FLOW_DATA_DIR)
+    ? path.resolve(process.env.FLOW_DATA_DIR)
+    : path.resolve(root, process.env.FLOW_DATA_DIR)
+  : path.join(root, 'data');
 const force = process.argv.includes('--force');
 const now = new Date().toISOString();
 

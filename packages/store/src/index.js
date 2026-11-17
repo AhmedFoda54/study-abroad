@@ -17,11 +17,15 @@ import { fileURLToPath } from 'node:url';
  * Each service is launched from its own folder, so a relative `./data` would
  * give every service a private store and they would silently stop seeing each
  * other's records. `FLOW_DATA_DIR` overrides this for split deployments where
- * the packages are not siblings of the data directory.
+ * the packages are not siblings of the data directory. A relative override
+ * anchors to the repository root as well, so it never depends on the caller's
+ * working directory.
  */
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const DATA_DIR = process.env.FLOW_DATA_DIR
-  ? path.resolve(process.env.FLOW_DATA_DIR)
+  ? path.isAbsolute(process.env.FLOW_DATA_DIR)
+    ? path.resolve(process.env.FLOW_DATA_DIR)
+    : path.resolve(PACKAGE_ROOT, process.env.FLOW_DATA_DIR)
   : path.join(PACKAGE_ROOT, 'data');
 
 /**

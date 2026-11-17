@@ -10,7 +10,7 @@ node_modules/
 data/secrets.json
 
 # runtime data store (seeded on first run)
-data/*.json
+**/data/*.json
 !data/.gitkeep
 
 # next.js

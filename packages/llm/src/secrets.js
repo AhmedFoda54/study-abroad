@@ -13,10 +13,13 @@ import { fileURLToPath } from 'node:url';
  */
 
 // Anchored to the repository root for the same reason the store is: each
-// service runs from its own folder.
+// service runs from its own folder. A relative `FLOW_DATA_DIR` anchors to the
+// repository root too, so it never depends on the caller's working directory.
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const DATA_DIR = process.env.FLOW_DATA_DIR
-  ? path.resolve(process.env.FLOW_DATA_DIR)
+  ? path.isAbsolute(process.env.FLOW_DATA_DIR)
+    ? path.resolve(process.env.FLOW_DATA_DIR)
+    : path.resolve(PACKAGE_ROOT, process.env.FLOW_DATA_DIR)
   : path.join(PACKAGE_ROOT, 'data');
 const SECRETS_FILE = path.join(DATA_DIR, 'secrets.json');
 
