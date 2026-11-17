@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@flow/shared": "*",
+    "@flow/search": "*",
     "openai": "^4.77.0",
     "@flow/service-kit": "*"
   }

@@ -1,5 +1,6 @@
 import { createService, finaliseService, listen, route } from '@flow/service-kit';
-import { ok, AppError, renderTemplate, extractVariables, resolveModelConfig } from '@flow/shared';
+import { ok, AppError, getErrorMessage, renderTemplate, extractVariables, resolveModelConfig } from '@flow/shared';
+import { searchWeb, renderSearchResults } from '@flow/search';
 import { runPrompt, isOpencodeEngine } from './index.js';
 import { resolveApiKey } from './secrets.js';
 
@@ -63,10 +64,33 @@ export function createExecutorService({ name, port, defaultModel, description })
           `${missingVariables.length ? ` [${missingVariables.length} empty variables]` : ''}`,
       );
 
+      // Search is done by Flow, not by the model: the OpenCode engine's
+      // one-shot endpoint cannot run provider tools, so live results go into
+      // the prompt as evidence. Only the dev engine needs this — the OpenAI
+      // path keeps its native web search — and demo output never searches.
+      let searched = false;
+      if (config.webSearch && isOpencodeEngine() && !demoMode) {
+        const searchQuery = [context?.target?.name, context?.target?.organization].filter(Boolean).join(' ').trim();
+        if (searchQuery) {
+          try {
+            const results = await searchWeb(searchQuery, { maxResults: 5 });
+            user.text += renderSearchResults(searchQuery, results);
+            searched = true;
+            logger.info(`${step.key} +search: "${searchQuery}" -> ${results.length} results`);
+          } catch (error) {
+            logger.warn(`${step.key} web search failed (${getErrorMessage(error)}); continuing without search.`);
+          }
+        } else {
+          logger.warn(`${step.key} asked for web search, but no target name was available to build a query; continuing without.`);
+        }
+      }
+
       const result = await runPrompt({
         systemPrompt: system.text,
         userPrompt: user.text,
-        config,
+        // The executor satisfied the search requirement itself, so the model
+        // call must not log a misleading "ran without search" warning.
+        config: searched ? { ...config, webSearch: false } : config,
         outputSchema: step.outputSchema ?? null,
         schemaName: String(step.key ?? name).replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 60) || 'structured_output',
         apiKey,
