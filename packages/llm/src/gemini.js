@@ -135,6 +135,12 @@ function translateGeminiError(error, model) {
   if (status === 400) {
     return new AppError(`Gemini rejected the request: ${message}`, 400);
   }
+  if (status === 500 || status === 502 || status === 503 || status === 504) {
+    return new AppError(
+      `Gemini is temporarily unavailable (${status}) after retries. The free tier rejects requests under load; retry the step in a moment, or switch FLOW_LLM_ENGINE=opencode.`,
+      status,
+    );
+  }
   return new AppError(`The Gemini engine call failed: ${message}`, status ?? 502);
 }
 
@@ -167,7 +173,7 @@ export async function runGeminiPrompt(request) {
   }
 
   const model = geminiModelId();
-  const client = new OpenAI({ apiKey, baseURL: geminiBaseUrl(), maxRetries: 1 });
+  const client = new OpenAI({ apiKey, baseURL: geminiBaseUrl(), maxRetries: 2 });
 
   /** @type {any[]} */
   const messages = [];
