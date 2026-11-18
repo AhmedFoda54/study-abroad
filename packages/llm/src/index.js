@@ -2,18 +2,22 @@ import OpenAI from 'openai';
 import { AppError, getErrorMessage } from '@flow/shared';
 import { generateDemoOutput } from './demo.js';
 import { runOpencodePrompt } from './opencode.js';
+import { runGeminiPrompt } from './gemini.js';
 
 export { generateDemoOutput } from './demo.js';
+export { assertGeminiDataPolicy } from './gemini.js';
 
 /**
  * The single place the platform talks to a model.
  *
- * Three engines sit behind one function. The live engine calls the OpenAI
+ * Four engines sit behind one function. The live engine calls the OpenAI
  * Responses API; the demo engine synthesises structurally valid output from the
- * same JSON schema; and the dev-only OpenCode engine routes the prompt through
- * the local OpenCode client, whose free models cost nothing. Every screen,
- * pipeline, and export therefore works before an API key exists, which is what
- * makes the product explorable on first run.
+ * same JSON schema; the dev-only OpenCode engine routes the prompt through the
+ * local OpenCode client, whose free models cost nothing; and the dev-only
+ * Gemini engine uses Google's free tier through its OpenAI-compatible Chat
+ * Completions endpoint. Every screen, pipeline, and export therefore works
+ * before an API key exists, which is what makes the product explorable on
+ * first run.
  */
 
 /**
@@ -25,6 +29,16 @@ export { generateDemoOutput } from './demo.js';
  */
 export function isOpencodeEngine() {
   return process.env.FLOW_LLM_ENGINE?.trim().toLowerCase() === 'opencode';
+}
+
+/**
+ * Whether model calls should use Google's free Gemini tier. Dev-only for the
+ * same reason as the OpenCode engine: the free tier's quota is small and its
+ * prompts may be used to improve Google products.
+ * @returns {boolean}
+ */
+export function isGeminiEngine() {
+  return process.env.FLOW_LLM_ENGINE?.trim().toLowerCase() === 'gemini';
 }
 
 /** @type {OpenAI | null} */
@@ -170,7 +184,7 @@ function parseJsonOutput(text) {
  *   signal?: AbortSignal,
  *   logger?: { info: (m: string) => void, warn: (m: string) => void, debug: (m: string) => void }
  * }} request
- * @returns {Promise<{ output: unknown, text: string, usage: ReturnType<typeof readUsage>, engine: 'live' | 'demo' | 'opencode' }>}
+ * @returns {Promise<{ output: unknown, text: string, usage: ReturnType<typeof readUsage>, engine: 'live' | 'demo' | 'opencode' | 'gemini' }>}
  */
 export async function runPrompt(request) {
   const {
@@ -191,7 +205,7 @@ export async function runPrompt(request) {
     throw new AppError('The rendered prompt was empty. Check the template for this step.', 422);
   }
 
-  const engine = isOpencodeEngine() ? 'opencode' : 'openai';
+  const engine = isGeminiEngine() ? 'gemini' : isOpencodeEngine() ? 'opencode' : 'openai';
   const shouldDemo = demoMode || (engine === 'openai' && !apiKey);
 
   if (shouldDemo) {
@@ -242,6 +256,27 @@ export async function runPrompt(request) {
         model: `${modelId} (opencode)`,
       },
       engine: 'opencode',
+      durationMs: Date.now() - started,
+    };
+  }
+
+  if (engine === 'gemini') {
+    const started = Date.now();
+    const { text, usage } = await runGeminiPrompt({
+      systemPrompt,
+      userPrompt,
+      config,
+      outputSchema,
+      schemaName,
+      signal,
+      logger,
+    });
+
+    return {
+      output: outputSchema ? parseJsonOutput(text) : text,
+      text,
+      usage,
+      engine: 'gemini',
       durationMs: Date.now() - started,
     };
   }

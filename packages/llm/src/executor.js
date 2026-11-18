@@ -1,7 +1,7 @@
 import { createService, finaliseService, listen, route } from '@flow/service-kit';
 import { ok, AppError, getErrorMessage, renderTemplate, extractVariables, resolveModelConfig } from '@flow/shared';
 import { searchWeb, renderSearchResults } from '@flow/search';
-import { runPrompt, isOpencodeEngine } from './index.js';
+import { runPrompt, isOpencodeEngine, isGeminiEngine } from './index.js';
 import { resolveApiKey } from './secrets.js';
 
 /**
@@ -55,21 +55,22 @@ export function createExecutorService({ name, port, defaultModel, description })
       const missingVariables = [...new Set([...system.missing, ...user.missing])];
 
       const apiKey = await resolveApiKey();
-      // The OpenCode dev engine carries its own credential (the local client),
-      // so a missing OpenAI key does not force demo mode there.
-      const demoMode = Boolean(runtime.demoMode) || (!isOpencodeEngine() && !apiKey);
+      // The dev engines carry their own credential (the local OpenCode client,
+      // or the Gemini key in the environment), so a missing OpenAI key does
+      // not force demo mode there.
+      const demoMode = Boolean(runtime.demoMode) || (!isOpencodeEngine() && !isGeminiEngine() && !apiKey);
 
       logger.info(
         `${step.key} -> ${config.model}${config.webSearch ? ' +web' : ''}${demoMode ? ' (demo)' : ''}` +
           `${missingVariables.length ? ` [${missingVariables.length} empty variables]` : ''}`,
       );
 
-      // Search is done by Flow, not by the model: the OpenCode engine's
-      // one-shot endpoint cannot run provider tools, so live results go into
-      // the prompt as evidence. Only the dev engine needs this — the OpenAI
-      // path keeps its native web search — and demo output never searches.
+      // Search is done by Flow, not by the model: the dev engines (OpenCode's
+      // one-shot endpoint, Gemini's free tier) cannot run provider tools, so
+      // live results go into the prompt as evidence. The OpenAI path keeps its
+      // native web search, and demo output never searches.
       let searched = false;
-      if (config.webSearch && isOpencodeEngine() && !demoMode) {
+      if (config.webSearch && (isOpencodeEngine() || isGeminiEngine()) && !demoMode) {
         const searchQuery = [context?.target?.name, context?.target?.organization].filter(Boolean).join(' ').trim();
         if (searchQuery) {
           try {

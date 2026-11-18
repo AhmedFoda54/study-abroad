@@ -23,7 +23,7 @@ import {
   profileSchema,
   targetSchema,
 } from '@flow/shared';
-import { isOpencodeEngine } from '@flow/llm';
+import { isOpencodeEngine, isGeminiEngine, assertGeminiDataPolicy } from '@flow/llm';
 import { executeRun } from './runner.js';
 
 /**
@@ -142,9 +142,10 @@ app.get(
       ok({
         ...settings,
         apiKey,
-        // The OpenCode dev engine rides the local client, so a missing OpenAI
-        // key does not force demo mode there.
-        demoModeActive: settings.demoMode || (!apiKey.present && !isOpencodeEngine()),
+        // The dev engines carry their own credential (the local OpenCode
+        // client, or the Gemini key), so a missing OpenAI key does not force
+        // demo mode there.
+        demoModeActive: settings.demoMode || (!apiKey.present && !isOpencodeEngine() && !isGeminiEngine()),
         dataDir: DATA_DIR,
       }),
     );
@@ -164,7 +165,7 @@ app.patch(
       ok({
         ...updated,
         apiKey,
-        demoModeActive: updated.demoMode || (!apiKey.present && !isOpencodeEngine()),
+        demoModeActive: updated.demoMode || (!apiKey.present && !isOpencodeEngine() && !isGeminiEngine()),
         dataDir: DATA_DIR,
       }),
     );
@@ -341,11 +342,18 @@ app.post(
       wordCount: settings.defaultWordCount,
       ...(input.options ?? {}),
       // Demo mode is forced when there is no key: a run that silently produced
-      // nothing would be far more confusing than one labelled as a demo. With
-      // the dev-only OpenCode engine the local client is the credential.
+      // nothing would be far more confusing than one labelled as a demo. The
+      // dev-only engines carry their own credentials, so they are not forced.
       demoMode:
-        Boolean(input.options?.demoMode) || settings.demoMode || (!hasKey && !isOpencodeEngine()),
+        Boolean(input.options?.demoMode) ||
+        settings.demoMode ||
+        (!hasKey && !isOpencodeEngine() && !isGeminiEngine()),
     });
+
+    // The Gemini free tier may use prompts to improve Google products, so real
+    // applicant data must be opted in. Seeded profiles carry the "sample" tag.
+    // Demo runs send no data, so they are not blocked.
+    if (isGeminiEngine() && !options.demoMode) assertGeminiDataPolicy(profile);
 
     const createdAt = now();
     const run = runSchema.parse({
@@ -611,7 +619,7 @@ app.get(
             summary: summariseRun(run),
           })),
         activeRuns: [...active.keys()],
-        demoModeActive: settings.demoMode || (!apiKey.present && !isOpencodeEngine()),
+        demoModeActive: settings.demoMode || (!apiKey.present && !isOpencodeEngine() && !isGeminiEngine()),
         apiKey,
       }),
     );
