@@ -13,7 +13,7 @@ import { AppError, getErrorMessage } from '@flow/shared';
  * Two deliberate differences from the live engine:
  * - Chat Completions, not the Responses API. Structured output therefore uses
  *   `response_format.json_schema`, and usage is read from Chat Completions
- *   fields (thinking tokens arrive inside `completion_tokens`).
+ *   fields.
  * - Thinking is pinned to the lowest level. Gemini 4 defaults to `high`, and
  *   thinking tokens are billed as output, so a dev pipeline run would pay for
  *   reasoning it does not need on every step.
@@ -68,23 +68,32 @@ export function assertGeminiDataPolicy(profile) {
 }
 
 /**
- * Chat Completions reports thinking tokens inside `completion_tokens`; the
- * rest of the platform expects them separated so a large bill stays
- * explainable.
+ * Normalises Chat Completions usage. Gemini reports thinking tokens in two
+ * different places depending on the response: sometimes inside
+ * `completion_tokens_details.reasoning_tokens` (and therefore already inside
+ * `completion_tokens`), and sometimes only in `total_tokens`, leaving the
+ * parts short of the total. Both are handled, so the recount always adds up.
  * @param {any} usage
  * @param {string} model
  * @returns {{ promptTokens: number, completionTokens: number, reasoningTokens: number, totalTokens: number, model: string }}
  */
 function readChatUsage(usage, model) {
   const promptTokens = Number(usage?.prompt_tokens ?? 0) || 0;
-  const reasoningTokens = Number(usage?.completion_tokens_details?.reasoning_tokens ?? 0) || 0;
   const completionTotal = Number(usage?.completion_tokens ?? 0) || 0;
+  const totalTokens = Number(usage?.total_tokens ?? promptTokens + completionTotal) || 0;
+  const reportedReasoning = Number(usage?.completion_tokens_details?.reasoning_tokens ?? 0) || 0;
+
+  // Anything the total counts that the parts do not explain is hidden thinking.
+  const impliedReasoning = Math.max(0, totalTokens - promptTokens - completionTotal);
+  const reasoningTokens = Math.max(reportedReasoning, impliedReasoning);
 
   return {
     promptTokens,
-    completionTokens: Math.max(0, completionTotal - reasoningTokens),
+    // When the details field says reasoning is part of completion_tokens, take
+    // it out so it is not counted twice; otherwise completion stands alone.
+    completionTokens: Math.max(0, completionTotal - reportedReasoning),
     reasoningTokens,
-    totalTokens: Number(usage?.total_tokens ?? promptTokens + completionTotal),
+    totalTokens,
     model: `${model} (gemini)`,
   };
 }
