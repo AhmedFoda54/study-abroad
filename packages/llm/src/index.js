@@ -2,7 +2,7 @@ import OpenAI from 'openai';
 import { AppError, getErrorMessage } from '@flow/shared';
 import { generateDemoOutput } from './demo.js';
 import { runOpencodePrompt } from './opencode.js';
-import { runGeminiPrompt } from './gemini.js';
+import { runGeminiPrompt, geminiModelId } from './gemini.js';
 
 export { generateDemoOutput } from './demo.js';
 export { assertGeminiDataPolicy } from './gemini.js';
@@ -39,6 +39,19 @@ export function isOpencodeEngine() {
  */
 export function isGeminiEngine() {
   return process.env.FLOW_LLM_ENGINE?.trim().toLowerCase() === 'gemini';
+}
+
+/**
+ * The model label for logs and screens. A step stores an OpenAI model id, so
+ * printing it while a dev engine answers the call claims a model that never
+ * ran. This resolves the engine actually in use.
+ * @param {string} stepModel
+ * @returns {string}
+ */
+export function describeEngineModel(stepModel) {
+  if (isGeminiEngine()) return `${geminiModelId()} (gemini)`;
+  if (isOpencodeEngine()) return `${process.env.FLOW_OPENCODE_MODEL?.trim() || stepModel} (opencode)`;
+  return stepModel;
 }
 
 /** @type {OpenAI | null} */

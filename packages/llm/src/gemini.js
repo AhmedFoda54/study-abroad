@@ -32,7 +32,7 @@ const DEV_THINKING_EFFORT = 'low';
  * it is an env override rather than a hardcoded constant.
  * @returns {string}
  */
-function geminiModelId() {
+export function geminiModelId() {
   return process.env.FLOW_GEMINI_MODEL?.trim() || DEFAULT_MODEL;
 }
 

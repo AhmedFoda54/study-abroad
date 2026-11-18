@@ -1,7 +1,7 @@
 import { createService, finaliseService, listen, route } from '@flow/service-kit';
 import { ok, AppError, getErrorMessage, renderTemplate, extractVariables, resolveModelConfig } from '@flow/shared';
 import { searchWeb, renderSearchResults } from '@flow/search';
-import { runPrompt, isOpencodeEngine, isGeminiEngine } from './index.js';
+import { runPrompt, isOpencodeEngine, isGeminiEngine, describeEngineModel } from './index.js';
 import { resolveApiKey } from './secrets.js';
 
 /**
@@ -60,8 +60,12 @@ export function createExecutorService({ name, port, defaultModel, description })
       // not force demo mode there.
       const demoMode = Boolean(runtime.demoMode) || (!isOpencodeEngine() && !isGeminiEngine() && !apiKey);
 
+      // The engine label, not the step's stored OpenAI id: under a dev engine
+      // that id never runs, and a log claiming otherwise sends people looking
+      // in the wrong place.
+      const engineLabel = demoMode ? 'demo' : describeEngineModel(config.model);
       logger.info(
-        `${step.key} -> ${config.model}${config.webSearch ? ' +web' : ''}${demoMode ? ' (demo)' : ''}` +
+        `${step.key} -> ${engineLabel}${config.webSearch ? ' +web' : ''}` +
           `${missingVariables.length ? ` [${missingVariables.length} empty variables]` : ''}`,
       );
 
