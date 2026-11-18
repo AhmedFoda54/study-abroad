@@ -155,6 +155,15 @@ function translateOpencodeError(stdout, stderr) {
     return new AppError(`The OpenCode engine failed: ${message || reason || 'unknown provider error'}`, status ?? 502);
   }
 
+  // Observed live when OpenCode rotates its free catalog: the id configured in
+  // FLOW_OPENCODE_MODEL disappears and the service answers without a status.
+  if (parsed?._tag === 'ModelNotFoundError') {
+    return new AppError(
+      `The OpenCode model "${parsed?.modelID ?? '(unknown)'}" is not available. Free model ids rotate; list the current ones with "opencode api get /api/model" and update FLOW_OPENCODE_MODEL.`,
+      404,
+    );
+  }
+
   // Observed live when the model reference does not resolve: the client rejects
   // the request before any provider is contacted, which would otherwise read as
   // an API-key problem ("Missing key") when it is really a wrong model id.
